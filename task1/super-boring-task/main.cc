@@ -155,7 +155,7 @@ void opencl_main(OpenCL& opencl) {
     print_column_names();
     profile_vector_times_vector(1024*1024*10, opencl);
     profile_matrix_times_vector(1024*10, opencl);
-    profile_matrix_times_matrix(1024);
+    profile_matrix_times_matrix(1024, opencl);
 }
 
 const std::string src = R"(
@@ -165,7 +165,7 @@ kernel void vector_times_vector(global float* a,
     const int i = get_global_id(0);
     result[i] = a[i] * b[i];
 }
-
+#define BUFFSIZE (1024 * 12)
 kernel void matrix_times_vector(global const float* a,
                                 global const float* b,
                                 global float* result) {
@@ -187,27 +187,26 @@ kernel void matrix_times_vector(global const float* a,
     result[i] = sum;
 }
 
-kernel void matrix_times_matrix(global float* a,
-                                global float* b,
-                                global float* result) {
+__kernel void matrix_times_matrix(global const float *a,
+                                global const float *b,
+                                global float *result) {
     const int idX = get_global_id(0);
     const int idY = get_global_id(1);
     int t = get_local_id(0);
     const int m = get_local_size(0);
-    const int n = get_global_size(0);
+    const int n = get_global_size(0); // assume [n, n]
+
     __local float row[1024];
+    for (int j = t; j < n; j += m) {
+        row[j] = a[idY * n + j]; // assume all work items have the same idY
+    }
     barrier(CLK_LOCAL_MEM_FENCE);
     float sum = 0;
-
-    for (int i = t; i < n; i += m) {
-        row[i] = a[idY * n + i];
+	for (int j = 0; j < n; j++) {
+		sum += row[j] * b[j * n + idX];
     }
-
-    for (int i = 0; i < n; i++) {
-        sum += row[i] * b[i * n + idX];
-    }
-
-    result[idY * n + idX] = sum;        
+	result[idY * n + idX] = sum;
+	
 }
 )";
 
